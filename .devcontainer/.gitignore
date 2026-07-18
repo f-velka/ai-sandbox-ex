@@ -1,0 +1,9 @@
+# 組織CA(Zscaler等)。ホスト固有ファイルとして各自が投入する。
+certs/*.pem
+certs/*.crt
+
+# ホスト固有設定(COMPOSE_PROJECT_NAME等)。bootstrapが初期化し、docker composeが読む。
+.env
+
+__pycache__/
+*.pyc

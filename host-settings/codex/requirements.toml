@@ -1,0 +1,12 @@
+# Codexの上書き不能な管理要件。OS所定の管理要件パスへ配置し、施錠する。
+
+# 全アクセスモードを選べなくする。
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+
+# liveはプロバイダに任意URLを取得させられる流出経路になるため除外する。
+# disabledは常に許可されるが、意図を明示するために書いておく。
+allowed_web_search_modes = ["disabled", "cached"]
+
+# 空の[mcp_servers]は全MCPサーバーの無効化を意味する(管理者が個別に許可リストへ
+# 追記するまで何も有効化されない)。
+[mcp_servers]

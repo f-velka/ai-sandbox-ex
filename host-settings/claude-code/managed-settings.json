@@ -1,0 +1,20 @@
+{
+  "allowManagedMcpServersOnly": true,
+  "allowedMcpServers": [],
+  "allowManagedPermissionRulesOnly": true,
+  "disableClaudeAiConnectors": true,
+  "permissions": {
+    "deny": [
+      "WebSearch"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowManagedDomainsOnly": true,
+      "allowedDomains": []
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "env": {
+    "DISABLE_UPDATES": "1"
+  },
+  "permissions": {
+    "deny": ["WebSearch"]
+  },
+  "sandbox": {
+    "network": {
+      "allowManagedDomainsOnly": true,
+      "allowedDomains": [
+        "api.anthropic.com",
+        "api.openai.com",
+        "github.com"
+      ]
+    }
+  },
+  "allowManagedMcpServersOnly": true,
+  "allowedMcpServers": []
+}

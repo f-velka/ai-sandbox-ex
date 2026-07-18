@@ -1,0 +1,40 @@
+#!/bin/sh
+# ホスト側の初期化(冪等)。devcontainer.jsonのinitializeCommandから自動実行されるほか、
+# 素のdocker composeで使う場合は一度だけ手動実行する。
+#
+# `.env`へ次の2キーを初期化する。既存のキーには一切触れない(手動で書いた値と
+# 前回生成した値を尊重する)。
+#   - COMPOSE_PROJECT_NAME:   devcontainer CLI / VS Codeがこのフォルダから導出する
+#     プロジェクト名と、素のdocker composeが使う名前を一致させ、同じスタックを指せるようにする。
+#   - SANDBOX_SUBNET_PREFIX:  プロジェクトパスから決定的に導出した/24のプレフィックス。
+#     コピーごとに自動で別subnetになり、既定値の取り合いによる`Pool overlaps`起動失敗を防ぐ。
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ENV_FILE="$SCRIPT_DIR/.env"
+PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+# devcontainer CLI / VS Codeの導出規則: 親ディレクトリのベース名を小文字化し、
+# composeのプロジェクト名として不正な文字を`-`へ置換したもの + `_devcontainer`。
+_project_basename=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')
+_compose_project_name="${_project_basename}_devcontainer"
+
+_path_hash=$(printf '%s' "$PROJECT_ROOT" | cksum | cut -d' ' -f1)
+_subnet_b=$((160 + _path_hash % 64))
+_subnet_c=$(((_path_hash / 64) % 256))
+_sandbox_subnet_prefix="10.${_subnet_b}.${_subnet_c}"
+
+touch "$ENV_FILE"
+
+_ensure_env_key() {
+  key="$1"
+  value="$2"
+  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    return 0
+  fi
+  echo "${key}=${value}" >> "$ENV_FILE"
+}
+
+_ensure_env_key "COMPOSE_PROJECT_NAME" "$_compose_project_name"
+_ensure_env_key "SANDBOX_SUBNET_PREFIX" "$_sandbox_subnet_prefix"
+echo "bootstrap: $ENV_FILE is up to date"

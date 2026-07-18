@@ -1,0 +1,9 @@
+# Codexの上書き不能な管理要件。配置先は /etc/codex/requirements.toml。
+
+# liveはプロバイダに任意URLを取得させられる環境外の流出経路になるため除外する。
+# disabledは常に許可されるが、意図を明示するために書いておく。
+allowed_web_search_modes = ["disabled", "cached"]
+
+# 空の[mcp_servers]は全MCPサーバーの無効化を意味する(管理者が個別に許可リストへ
+# 追記するまで何も有効化されない)。
+[mcp_servers]

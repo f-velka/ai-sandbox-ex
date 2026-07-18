@@ -1,0 +1,10 @@
+{
+  "name": "agent-sandbox",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "agent",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "dev",
+  "shutdownAction": "stopCompose",
+  "initializeCommand": ".devcontainer/bootstrap",
+  "postStartCommand": "sandbox-check || true"
+}

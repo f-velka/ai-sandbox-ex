@@ -1,0 +1,134 @@
+# AIエージェントサンドボックス。設計は docs/design.md。
+#
+# ネットワーク:
+#   internal: agentが唯一所属するネットワーク。`internal: true` でWANへの経路がない。
+#             dns / gateway も静的IPで同居する。
+#   egress:   外部インターネットへ出られる唯一のネットワーク。gatewayのみ所属する。
+#
+# agentコンテナには境界を実装する能力も外への経路も与えない
+# (非root・capabilityなし・sudoなし・ホストのdocker.sockや認証情報をマウントしない)。
+#
+# subnetの既定は10.20.0.0/24。`.devcontainer/bootstrap` がプロジェクトパスから導出した
+# 値を `.env` の SANDBOX_SUBNET_PREFIX に書き、コピー間の衝突を防ぐ。
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    init: true
+    networks:
+      internal:
+        ipv4_address: ${SANDBOX_SUBNET_PREFIX:-10.20.0}.10
+    dns:
+      - ${SANDBOX_SUBNET_PREFIX:-10.20.0}.2
+    environment:
+      CLAUDE_CONFIG_DIR: /home/dev/.claude
+      # dockerクライアントの接続先。dindプロファイル有効時にdockerdがここで待ち受ける。
+      DOCKER_HOST: unix:///run/agent-docker/docker.sock
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      # CodexがBubblewrapで自前のサンドボックスを作れるようにする。
+      # 境界はseccompではなく非root実行、capability、マウント、ネットワークで維持する。
+      - seccomp:unconfined
+    volumes:
+      # 作業対象。WORKSPACE_DIR には .devcontainer を含むディレクトリ(このリポジトリの
+      # ルート等)を指定してはならない: 読み取り専用で施錠している許可リストと同じ
+      # ホストファイルが /workspace 経由で書き込み可能になり、境界が破れる。
+      - ${WORKSPACE_DIR:-../workspace}:/workspace:cached
+      # 認証情報、利用者設定、セッション、キャッシュをコンテナ再作成後も保持する。
+      - codex-state:/home/dev/.codex
+      - claude-state:/home/dev/.claude
+      - dev-cache:/home/dev/.cache
+      # dindのdockerd APIソケット置き場。roのためソケットの削除や差し替えはできない。
+      - dind-sock:/run/agent-docker:ro
+      # 通信の許可リスト。gatewayが読むものと同じファイルをroで見せる。
+      - ./policy:/etc/agent-sandbox/policy:ro
+      # サンドボックス構成自体のroビュー。エージェントが環境起因の問題を自力診断
+      # できるようにする。この前提を保つため .devcontainer に秘密を置かないこと。
+      - .:/etc/agent-sandbox/devcontainer:ro
+    command: sleep infinity
+    depends_on:
+      - dns
+      - gateway
+
+  # シンクホールDNS。すべての外部名にgatewayのIPを返す。
+  dns:
+    build:
+      context: .
+      dockerfile: dns/Dockerfile
+    networks:
+      internal:
+        ipv4_address: ${SANDBOX_SUBNET_PREFIX:-10.20.0}.2
+    environment:
+      GATEWAY_IP: ${SANDBOX_SUBNET_PREFIX:-10.20.0}.3
+
+  # SNIパススルー中継器。許可リストのホストだけを外部へ中継する。TLSは終端しない。
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    networks:
+      internal:
+        ipv4_address: ${SANDBOX_SUBNET_PREFIX:-10.20.0}.3
+      egress: {}
+    volumes:
+      - ./policy:/etc/agent-sandbox/policy:ro
+
+  # コンテナ内Docker(任意)。`.env` に COMPOSE_PROFILES=dind と書くと有効になる。
+  # rootless dockerdがagentのネットワーク名前空間を共有するため、内側コンテナの
+  # 外向き通信と名前解決にも上記の境界がそのまま適用され、`-p` で公開したポートは
+  # agentのlocalhostに現れる。
+  # このサービスはagentと同格の非信頼ゾーンであり、秘密(許可リストの実体、ホストの
+  # 認証情報、ホストのDockerソケット)をマウントしてはならない。
+  dind:
+    profiles: ["dind"]
+    build:
+      context: .
+      dockerfile: dind/Dockerfile
+    init: true
+    network_mode: service:agent
+    security_opt:
+      # ユーザー名前空間の作成と、runcが名前空間内で行うmountを既定プロファイルが
+      # 遮るため無効化する。
+      - seccomp:unconfined
+      # 既定でマスクされた/procのままでは、ユーザー名前空間内のprocfsマウントが
+      # 失敗しコンテナを起動できない。
+      - systempaths=unconfined
+    # サブuid割当を行うsetuidのnewuidmap/newgidmapに必要な二つだけを残す。
+    # setuidと両立しないno-new-privilegesは付けられないため、秘密を置かないことで
+    # 侵害時の権限をagentの部分集合に保つ。
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+    devices:
+      # slirp4netns(rootlessネットワーク)のtapデバイス作成に必要。
+      - /dev/net/tun
+    volumes:
+      - dind-sock:/run/agent-docker
+      - dind-state:/home/rootless/.local/share/docker
+      # agentと同一パスでworkspaceを見せ、内側コンテナへのbind mountを成立させる。
+      - ${WORKSPACE_DIR:-../workspace}:/workspace:cached
+    # コマンドをdockerdから始めると、イメージのentrypointが既定のTCP待受を追加しない。
+    # 待受はこのUNIXソケットだけとする。
+    command: ["dockerd", "--host=unix:///run/agent-docker/docker.sock"]
+    depends_on:
+      - agent
+
+volumes:
+  codex-state: {}
+  claude-state: {}
+  dev-cache: {}
+  dind-sock: {}
+  dind-state: {}
+
+networks:
+  internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SANDBOX_SUBNET_PREFIX:-10.20.0}.0/24
+  egress: {}
