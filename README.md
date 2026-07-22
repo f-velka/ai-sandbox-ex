@@ -10,6 +10,8 @@ agent ── internal ネットワーク ── gateway ── egress ネット�
              dns
 ```
 
+このリポジトリはサンドボックスの配布元であり、ここで直接エージェントを動かすことは想定していません。
+`.devcontainer/`一式を自分のプロジェクトへコピーして使います。
 設計と保証の範囲は[docs/design.md](docs/design.md)を参照してください。
 
 ## 提供物の選び方
@@ -21,27 +23,40 @@ agent ── internal ネットワーク ── gateway ── egress ネット�
 
 両者は独立に使えます。併用した場合、製品の管理設定は外側の境界に対する防御の重ね掛けになります。
 
-## 必要なもの
+## 必要なもの(導入先)
 
 - DockerとDocker Compose
-- Dev Container対応エディタ(VS Code等)。使わない場合は`make`で起動できます。
+- Dev Container対応エディタ(VS Code等)。使わない場合はdocker composeで直接起動できます。
 
-## 始め方
+## プロジェクトへの導入
+
+このリポジトリで次を実行すると、サンドボックス一式が導入先へ配置されます。
+
+```bash
+make init TARGET=/path/to/project
+```
+
+`TARGET/.devcontainer`と`TARGET/workspace`が作られます。
+導入先はこのリポジトリに依存せず、以後の更新は再コピーで取り込みます。
+
+## 導入先での使い方
 
 作業対象のファイルを`workspace/`に置き(または後述の`WORKSPACE_DIR`を設定し)、次のどちらかで起動します。
 
-**Dev Container対応エディタ**:このリポジトリを開き、「Reopen in Container」を実行します。
+**Dev Container対応エディタ**:導入先プロジェクトを開き、「Reopen in Container」を実行します。
 
 **docker compose**:
 
 ```bash
-make up      # ビルドして起動(初回はエージェントCLIの取得で数分かかる)
-make check   # 境界の検査(コンテナ起動時にも自動実行される)
+.devcontainer/bootstrap
+docker compose -f .devcontainer/docker-compose.yml up -d --build   # 初回はエージェントCLIの取得で数分かかる
 docker compose -f .devcontainer/docker-compose.yml exec agent bash
 ```
 
 コンテナ内で`claude`または`codex`を起動し、初回は各CLIの認証を行います。
-認証情報、利用者設定、セッションは名前付きボリュームに保存され、コンテナを作り直しても保持されます(削除は`make reset`)。
+認証情報、利用者設定、セッションは名前付きボリュームに保存され、コンテナを作り直しても保持されます(削除は`docker compose -f .devcontainer/docker-compose.yml down -v`)。
+
+境界の検査はコンテナ起動時に自動実行されるほか、コンテナ内で`sandbox-check`を実行していつでも確かめられます。
 
 ## 接続先の追加
 
@@ -51,25 +66,18 @@ docker compose -f .devcontainer/docker-compose.yml exec agent bash
 
 ## 設定
 
+導入先の`.devcontainer/`に対して行います。
+
 | 目的 | 場所 |
 |---|---|
 | 接続先の許可 | `.devcontainer/policy/allowed-domains.conf` |
-| 既存プロジェクトを作業対象にする | `.devcontainer/.env`に`WORKSPACE_DIR=/path/to/repo` |
+| 別ディレクトリを作業対象にする | `.devcontainer/.env`に`WORKSPACE_DIR=/path/to/repo` |
 | コンテナ内Dockerを使う | `.devcontainer/.env`に`COMPOSE_PROFILES=dind` |
 | 言語ランタイムやCLIの追加 | `.devcontainer/agent/Dockerfile`に追記してリビルド |
 | 組織CA(Zscaler等)の信頼 | `.devcontainer/certs/`に証明書を置いてリビルド |
 
-`WORKSPACE_DIR`に`.devcontainer`を含むディレクトリ(このリポジトリのルート等)は指定しないでください。
+`WORKSPACE_DIR`に`.devcontainer`を含むディレクトリ(導入先プロジェクトのルート等)は指定しないでください。
 許可リストが`/workspace`経由で書き込み可能になり、境界が破れます(`sandbox-check`が検出します)。
-
-## 別プロジェクトへの導入
-
-```bash
-make init TARGET=/path/to/project
-```
-
-`TARGET/.devcontainer`と`TARGET/workspace`を作ります。
-以後の使い方はこのリポジトリと同じです。
 
 ## このリポジトリの開発
 
@@ -81,3 +89,5 @@ make test-integration   # 実コンテナでの統合テスト(要docker)
 make typecheck          # mypy --strict
 make lint               # ruff
 ```
+
+動作確認用に、このリポジトリ自身でも`make up`(起動)と`make check`(境界の検査)が使えます。
