@@ -73,6 +73,8 @@ make init TARGET=/path/to/project
 
 ## このリポジトリの開発
 
+開発タスクの実行には[uv](https://docs.astral.sh/uv/)が必要です。
+
 ```bash
 make test-unit          # 境界の判定ロジックの単体テスト
 make test-integration   # 実コンテナでの統合テスト(要docker。遅い)

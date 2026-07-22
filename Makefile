@@ -1,7 +1,6 @@
 # AIエージェントサンドボックスの操作と開発タスク
 COMPOSE := docker compose -f .devcontainer/docker-compose.yml
-VENV := .venv
-PYTEST := $(VENV)/bin/pytest
+UV := uv
 
 .PHONY: up down reset check test test-unit test-integration typecheck lint clean init
 
@@ -36,27 +35,23 @@ init:
 
 # --- 開発タスク ---------------------------------------------------------------
 
-$(PYTEST): tests/requirements.txt
-	python3 -m venv $(VENV)
-	$(VENV)/bin/pip install -q -r tests/requirements.txt
-
 # 速い: 境界の判定ロジックのみ(コンテナ不要)。
-test-unit: $(PYTEST)
-	$(PYTEST) tests --ignore=tests/integration
+test-unit:
+	$(UV) run --locked pytest tests --ignore=tests/integration
 
 # 遅い: 実際のコンテナ群を専用プロジェクト名で起動して検証する(要docker)。
-test-integration: $(PYTEST)
-	$(PYTEST) tests/integration
+test-integration:
+	$(UV) run --locked pytest tests/integration
 
-test: $(PYTEST)
-	$(PYTEST) tests
+test:
+	$(UV) run --locked pytest tests
 
-typecheck: $(PYTEST)
-	$(VENV)/bin/mypy
+typecheck:
+	$(UV) run --locked mypy
 
-lint: $(PYTEST)
-	$(VENV)/bin/ruff check .
-	$(VENV)/bin/ruff format --check .
+lint:
+	$(UV) run --locked ruff check .
+	$(UV) run --locked ruff format --check .
 
 clean:
-	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache
+	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache
