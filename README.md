@@ -77,7 +77,7 @@ make init TARGET=/path/to/project
 
 ```bash
 make test-unit          # 境界の判定ロジックの単体テスト
-make test-integration   # 実コンテナでの統合テスト(要docker。遅い)
+make test-integration   # 実コンテナでの統合テスト(要docker)
 make typecheck          # mypy --strict
 make lint               # ruff
 ```
