@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -288,72 +288,88 @@ async def _connect_upstream(
         return await asyncio.open_connection(host, port)
 
 
+# 接続の先頭を読めなかった場合に遮断へ落とす例外の集合。
+_HEAD_READ_ERRORS = (
+    asyncio.IncompleteReadError,
+    asyncio.LimitOverrunError,
+    TimeoutError,
+    OSError,
+    _ParseError,
+)
+
+
+async def _read_tls_head(reader: asyncio.StreamReader) -> tuple[bytes, str | None]:
+    header, payload = await _read_tls_record(reader)
+    return header + payload, extract_sni(payload)
+
+
+async def _read_http_head(reader: asyncio.StreamReader) -> tuple[bytes, str | None]:
+    head = await reader.readuntil(b"\r\n\r\n")
+    return head, parse_http_host(head)
+
+
 class Gateway:
     def __init__(self, allowlist: ReloadingAllowlist) -> None:
         self._allowlist = allowlist
 
     async def handle_tls(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        try:
-            try:
-                async with asyncio.timeout(_CLIENT_READ_TIMEOUT_SECONDS):
-                    header, payload = await _read_tls_record(reader)
-            except (asyncio.IncompleteReadError, TimeoutError, OSError, _ParseError):
-                _log_decision(443, None, "block", "client-hello-unreadable")
-                return
-
-            raw_name = extract_sni(payload)
-            host = normalize_host(raw_name) if raw_name else None
-            if host is None or not self._allowlist.is_allowed(host):
-                _log_decision(443, host, "block")
-                writer.write(TLS_ALERT_UNRECOGNIZED_NAME)
-                with contextlib.suppress(OSError):
-                    await writer.drain()
-                return
-
-            try:
-                upstream_reader, upstream_writer = await _connect_upstream(host, 443)
-            except (TimeoutError, OSError) as error:
-                _log_decision(443, host, "upstream-error", str(error))
-                return
-            _log_decision(443, host, "allow")
-            try:
-                upstream_writer.write(header + payload)
-                await upstream_writer.drain()
-                await _relay(reader, writer, upstream_reader, upstream_writer)
-            finally:
-                await _close(upstream_writer)
-        finally:
-            await _close(writer)
+        await self._handle(
+            443,
+            reader,
+            writer,
+            read_head=_read_tls_head,
+            blocked_response=lambda host: TLS_ALERT_UNRECOGNIZED_NAME,
+            unreadable_reason="client-hello-unreadable",
+        )
 
     async def handle_http(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await self._handle(
+            80,
+            reader,
+            writer,
+            read_head=_read_http_head,
+            blocked_response=blocked_http_response,
+            unreadable_reason="request-head-unreadable",
+        )
+
+    async def _handle(
+        self,
+        port: int,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        *,
+        read_head: Callable[[asyncio.StreamReader], Awaitable[tuple[bytes, str | None]]],
+        blocked_response: Callable[[str | None], bytes],
+        unreadable_reason: str,
+    ) -> None:
+        """接続1本を処理する。
+
+        ポートによる違いは、先頭からのホスト名の読み方と遮断応答のバイト列だけであり、
+        判定と中継の振る舞いは両ポートで同一とする。
+        """
+
         try:
             try:
                 async with asyncio.timeout(_CLIENT_READ_TIMEOUT_SECONDS):
-                    head = await reader.readuntil(b"\r\n\r\n")
-            except (
-                asyncio.IncompleteReadError,
-                asyncio.LimitOverrunError,
-                TimeoutError,
-                OSError,
-            ):
-                _log_decision(80, None, "block", "request-head-unreadable")
+                    head, raw_name = await read_head(reader)
+            except _HEAD_READ_ERRORS:
+                _log_decision(port, None, "block", unreadable_reason)
                 return
 
-            raw_name = parse_http_host(head)
             host = normalize_host(raw_name) if raw_name else None
             if host is None or not self._allowlist.is_allowed(host):
-                _log_decision(80, host, "block")
-                writer.write(blocked_http_response(host))
+                _log_decision(port, host, "block")
+                writer.write(blocked_response(host))
                 with contextlib.suppress(OSError):
                     await writer.drain()
                 return
 
             try:
-                upstream_reader, upstream_writer = await _connect_upstream(host, 80)
+                upstream_reader, upstream_writer = await _connect_upstream(host, port)
             except (TimeoutError, OSError) as error:
-                _log_decision(80, host, "upstream-error", str(error))
+                _log_decision(port, host, "upstream-error", str(error))
                 return
-            _log_decision(80, host, "allow")
+            _log_decision(port, host, "allow")
             try:
                 upstream_writer.write(head)
                 await upstream_writer.drain()

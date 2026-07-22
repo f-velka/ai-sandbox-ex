@@ -271,27 +271,25 @@ def check_net_metadata() -> Result:
     return Result(check_id, "ng", f"{METADATA_ENDPOINT} が応答した (HTTP {status})")
 
 
-def check_fs_workspace_writable() -> Result:
-    check_id = "fs.workspace-writable"
-    probe = WORKSPACE_PATH / f".sandbox-check-{uuid.uuid4().hex}"
+def _create_error_in(directory: Path) -> str | None:
+    """ディレクトリでファイルの作成と削除を試み、拒否されたときのエラーを返す(成功ならNone)。"""
+
+    probe = directory / f".sandbox-check-{uuid.uuid4().hex}"
     try:
         descriptor = os.open(str(probe), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.close(descriptor)
         probe.unlink()
     except OSError as error:
+        return str(error)
+    return None
+
+
+def check_fs_workspace_writable() -> Result:
+    check_id = "fs.workspace-writable"
+    error = _create_error_in(WORKSPACE_PATH)
+    if error is not None:
         return Result(check_id, "ng", f"{WORKSPACE_PATH} に書き込めない: {error}")
     return Result(check_id, "ok", f"{WORKSPACE_PATH} でファイルを作成と削除できた")
-
-
-def _can_create_in(directory: Path) -> bool:
-    probe = directory / f".sandbox-check-{uuid.uuid4().hex}"
-    try:
-        descriptor = os.open(str(probe), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except OSError:
-        return False
-    os.close(descriptor)
-    probe.unlink(missing_ok=True)
-    return True
 
 
 def check_fs_policy_immutable() -> Result:
@@ -304,7 +302,7 @@ def check_fs_policy_immutable() -> Result:
         return Result(check_id, "ng", "許可リストを書き込み用に開けた")
     except OSError:
         pass
-    if _can_create_in(ALLOWLIST_PATH.parent):
+    if _create_error_in(ALLOWLIST_PATH.parent) is None:
         return Result(check_id, "ng", f"{ALLOWLIST_PATH.parent} にファイルを作成できた")
     return Result(check_id, "ok", "許可リストと配置ディレクトリへの書き込みが拒否された")
 
