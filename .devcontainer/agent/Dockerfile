@@ -6,11 +6,6 @@
 # ランタイムは利用者がこのDockerfileへ追加する。
 FROM debian:bookworm-slim
 
-# 再現性と、版上げ時に管理設定スキーマとの整合を確認するため固定する。
-# 版上げはこの2行を書き換えてリビルドする。
-ARG CLAUDE_CODE_VERSION=2.1.202
-ARG CODEX_VERSION=0.142.5
-
 # --- 非rootユーザー dev (uid 1000) を作成。sudoは導入しない ---------------------
 # ユーザー名はdev: このコンテナは人間の開発者とエージェントの両方が使う
 # (composeのサービス名agentはアーキテクチャ上の役割名)。
@@ -21,9 +16,10 @@ RUN useradd --uid 1000 --create-home --shell /bin/bash dev
 # tar: Claude Code/Codexのネイティブインストーラが使う。
 # procps: VS Code Remote Serverの動作に必要。
 # python3: sandbox-checkの実行に必要。
+# bubblewrap: Codexが起動するコマンドへLinuxサンドボックスを適用する。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-         curl git ca-certificates tar procps python3 \
+         curl git ca-certificates tar procps python3 bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # --- 組織CA(Zscaler等)をトラストストアへ導入 -----------------------------------
@@ -60,25 +56,10 @@ RUN apt-get update \
          gh docker-ce-cli docker-buildx-plugin docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Claude Code / Codex を非root(dev)でネイティブインストール ------------------
-# 両インストーラともダウンロード後にチェックサム検証を行い、アーキテクチャ
-# (x86_64/arm64)を自動検出する。
-USER dev
-ENV PATH="/home/dev/.local/bin:${PATH}"
-
-# https://code.claude.com/docs/en/setup#install-a-specific-version
-RUN curl -fsSL https://claude.ai/install.sh | bash -s ${CLAUDE_CODE_VERSION}
-
-# https://developers.openai.com/codex/cli (native installer)
-RUN CODEX_RELEASE=${CODEX_VERSION} CODEX_NON_INTERACTIVE=1 \
-      sh -c "curl -fsSL https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/install.sh | sh"
-
-# --- 管理設定をroot所有・644で導入(利用者設定より優先される管理配置) --------------
+# --- 管理配置のディレクトリ -----------------------------------------------------
 USER root
 RUN mkdir -p /etc/claude-code /etc/codex \
     && chmod 755 /etc/claude-code /etc/codex
-COPY --chown=root:root --chmod=644 agent/managed-settings.json /etc/claude-code/managed-settings.json
-COPY --chown=root:root --chmod=644 agent/codex-requirements.toml /etc/codex/requirements.toml
 
 # --- 検査コマンドと行動規範メモリ ----------------------------------------------
 # sandbox-guidance.mdはClaude Codeのmanaged層(cwd非依存で必ず読まれる)と、
@@ -91,6 +72,31 @@ COPY --chown=root:root --chmod=644 agent/sandbox-guidance.md /etc/claude-code/CL
 RUN mkdir -p /home/dev/.codex /home/dev/.claude /home/dev/.cache \
     && chown dev:dev /home/dev/.codex /home/dev/.claude /home/dev/.cache
 COPY --chown=dev:dev --chmod=644 agent/sandbox-guidance.md /home/dev/.codex/AGENTS.md
+
+# --- Claude Code / Codex -------------------------------------------------------
+# 再現性と、版上げ時に管理設定スキーマとの整合を確認するため固定する。
+# 版引数を末尾に置き、共通ツールのビルドキャッシュを版更新後も再利用する。
+USER dev
+ENV PATH="/home/dev/.local/bin:${PATH}"
+
+ARG CLAUDE_CODE_VERSION=2.1.202
+# https://code.claude.com/docs/en/setup#install-a-specific-version
+RUN curl -fsSL https://claude.ai/install.sh | bash -s ${CLAUDE_CODE_VERSION}
+
+# Codex本体は状態ボリュームで覆われないイメージ領域へ配置する。
+USER root
+ARG CODEX_VERSION=0.142.5
+# https://developers.openai.com/codex/cli (native installer)
+RUN mkdir -p /opt/codex \
+    && CODEX_HOME=/opt/codex \
+       CODEX_INSTALL_DIR=/usr/local/bin \
+       CODEX_RELEASE=${CODEX_VERSION} \
+       CODEX_NON_INTERACTIVE=1 \
+       sh -c "curl -fsSL https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/install.sh | sh"
+
+# 更新禁止を含む管理設定は、指定版のインストールを終えてから配置する。
+COPY --chown=root:root --chmod=644 agent/managed-settings.json /etc/claude-code/managed-settings.json
+COPY --chown=root:root --chmod=644 agent/codex-requirements.toml /etc/codex/requirements.toml
 
 USER dev
 WORKDIR /workspace

@@ -67,6 +67,24 @@ def test_sandbox_check_reports_every_boundary_as_ok() -> None:
     assert result.returncode == 0, f"\n{result.stdout}\n{result.stderr}"
 
 
+def test_agent_provides_both_cli_commands() -> None:
+    result = agent_exec(["sh", "-c", "claude --version && codex --version"])
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_codex_can_run_a_command_in_its_linux_sandbox() -> None:
+    result = agent_exec(["codex", "sandbox", "--", "true"])
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_bubblewrap_command_is_available() -> None:
+    result = agent_exec(["bwrap", "--version"])
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_blocked_host_gets_a_403_with_the_marker_header() -> None:
     result = agent_exec(["curl", "-s", "-i", "--max-time", "30", "http://example.com/"])
 
