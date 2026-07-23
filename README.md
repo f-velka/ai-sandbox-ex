@@ -76,6 +76,9 @@ docker compose -f .devcontainer/docker-compose.yml exec agent bash
 | 言語ランタイムやCLIの追加 | `.devcontainer/agent/Dockerfile`に追記してリビルド |
 | 組織CA(Zscaler等)の信頼 | `.devcontainer/certs/`に証明書を置いてリビルド |
 
+これらの変更はホスト側で行い、コンテナ内のgitには差分として現れません。
+エージェントが自分の境界の設定を書き換えられないよう、`.devcontainer/`は作業対象の外に置かれているためです。
+
 `WORKSPACE_DIR`に`.devcontainer`を含むディレクトリ(導入先プロジェクトのルート等)は指定しないでください。
 許可リストが`/workspace`経由で書き込み可能になり、境界が破れます(`sandbox-check`が検出します)。
 
