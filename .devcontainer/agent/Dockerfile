@@ -24,10 +24,11 @@ RUN useradd --uid 1000 --create-home --shell /bin/bash dev
 # tar: Claude Code/Codexのネイティブインストーラが使う。
 # procps: VS Code Remote Serverの動作に必要。
 # python3: sandbox-checkの実行に必要。
-# bubblewrap: Codexが起動するコマンドへLinuxサンドボックスを適用する。
+# bubblewrap: Claude Code/Codexが起動するコマンドへLinuxサンドボックスを適用する。
+# socat: Claude Codeのsandboxがネットワーク中継に使う(欠けると起動を拒否する)。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-         curl git ca-certificates tar procps python3 bubblewrap \
+         curl git ca-certificates tar procps python3 bubblewrap socat \
     && rm -rf /var/lib/apt/lists/*
 
 # --- 組織CA(Zscaler等)をトラストストアへ導入 -----------------------------------
@@ -97,7 +98,7 @@ ENV PATH="/home/dev/.local/bin:${PATH}"
 
 # Claude Codeの配置先 ~/.local はボリュームのマウント先ではないため、既定のままでよい
 # (マウント先は ~/.claude ~/.codex ~/.cache のみ)。
-ARG CLAUDE_CODE_VERSION=2.1.202
+ARG CLAUDE_CODE_VERSION=2.1.218
 # https://code.claude.com/docs/en/setup#install-a-specific-version
 USER dev
 RUN curl -fsSL https://claude.ai/install.sh | bash -s ${CLAUDE_CODE_VERSION}
@@ -105,7 +106,7 @@ USER root
 
 # Codexの既定の配置先 CODEX_HOME(~/.codex) はボリュームのマウント先のため、
 # イメージ領域 /opt/codex へ移す。
-ARG CODEX_VERSION=0.142.5
+ARG CODEX_VERSION=0.145.0
 # https://developers.openai.com/codex/cli (native installer)
 RUN mkdir -p /opt/codex \
     && CODEX_HOME=/opt/codex \

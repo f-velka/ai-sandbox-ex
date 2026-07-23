@@ -5,9 +5,13 @@
   "permissions": {
     "deny": ["WebSearch"]
   },
+  "disableClaudeAiConnectors": true,
   "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "excludedCommands": ["docker *"],
     "network": {
-      "allowManagedDomainsOnly": true,
       "allowedDomains": [
         "api.anthropic.com",
         "api.openai.com",

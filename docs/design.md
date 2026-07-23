@@ -62,7 +62,8 @@ agent ── internal ネットワーク ── gateway ── egress ネット�
 
 製品機能について、次を保証する。
 
-- 実行環境のネットワークを通らない製品機能（Claude Code の WebSearch、Codex のライブ Web 検索、MCP サーバー）は、製品の管理設定で無効化または許可制になる。
+- 実行環境のネットワークを通らない製品機能（Claude Code の WebSearch、claude.ai コネクタ、Codex のライブ Web 検索、MCP サーバー）は、製品の管理設定で無効化または許可制になる。
+- エージェント製品自身のサンドボックスは常時有効であり、agent 内から無効化できない。
 
 これらの性質は、`sandbox-check` が agent の内側から観測して確かめられる。
 
@@ -191,11 +192,16 @@ Dev Container の起動時（postStartCommand）にも自動実行し、境界�
 ## 製品側の管理設定
 
 エージェント製品には、実行環境のネットワークを通らずに外部へ接続する機能がある。
-Claude Code の WebSearch と Codex のライブ Web 検索は製品側のサーバーを経由し、MCP サーバーは任意の接続先を持ち込める。
+Claude Code の WebSearch と claude.ai コネクタ、Codex のライブ Web 検索は製品側のサーバーを経由し、MCP サーバーは任意の接続先を持ち込める。
 これらはネットワーク境界では制限できないため、利用者設定より優先される管理配置の設定ファイルで無効化する。
 
-- **Claude Code**：`/etc/claude-code/managed-settings.json`。`WebSearch` を拒否し、サンドボックスの通信先を管理ドメインに限定し、MCP サーバーを許可制（初期値は全拒否）にする。
-- **Codex**：`/etc/codex/requirements.toml`。Web 検索モードを `disabled` と `cached` に限定し、MCP サーバーを許可制（初期値は全拒否）にする。
+管理設定はもう一つ、製品自身のサンドボックス（Claude Code のサンドボックス化 Bash、Codex の Bubblewrap）を常時有効に保つ。
+これは外側の境界に対する防御の重ね掛けであり、無効化とサンドボックス外実行への迂回を封じる。
+`docker` はこのサンドボックスと両立しないため除外し、外側の境界がそのまま覆う。
+サンドボックス内コマンドの通信先の正本は外側の許可リストであり、製品側では両 CLI の API と GitHub だけを事前許可し、それ以外はセッション中の承認または利用者設定で足す。
+
+- **Claude Code**：`/etc/claude-code/managed-settings.json`。`WebSearch` と claude.ai コネクタを拒否し、MCP サーバーを許可制（初期値は全拒否）にし、sandbox を常時有効（初期化に失敗したら起動を拒否し、サンドボックス外への迂回を禁止、`docker` のみ除外）にする。
+- **Codex**：`/etc/codex/requirements.toml`。Web 検索モードを `disabled` と `cached` に限定し、MCP サーバーを許可制（初期値は全拒否）にし、サンドボックスモードを `read-only` と `workspace-write` に限定（全アクセスモードの禁止）する。
 
 どちらも root 所有でイメージへ焼き込み、agent 内からは変更できない。
 製品バージョンは agent の Dockerfile の `ARG` で固定する。

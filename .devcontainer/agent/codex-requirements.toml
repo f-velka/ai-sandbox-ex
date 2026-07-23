@@ -1,5 +1,9 @@
 # Codexの上書き不能な管理要件。配置先は /etc/codex/requirements.toml。
 
+# 全アクセスモードを選べなくし、製品サンドボックスを常時保つ
+# (外側の境界に対する防御の重ね掛け)。
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+
 # liveはプロバイダに任意URLを取得させられる環境外の流出経路になるため除外する。
 # disabledは常に許可されるが、意図を明示するために書いておく。
 allowed_web_search_modes = ["disabled", "cached"]
