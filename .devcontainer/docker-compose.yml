@@ -33,21 +33,19 @@ services:
       # 境界はseccompではなく非root実行、capability、マウント、ネットワークで維持する。
       - seccomp:unconfined
     volumes:
-      # 作業対象。WORKSPACE_DIR には .devcontainer を含むディレクトリ(このリポジトリの
-      # ルート等)を指定してはならない: 読み取り専用で施錠している許可リストと同じ
-      # ホストファイルが /workspace 経由で書き込み可能になり、境界が破れる。
-      - ${WORKSPACE_DIR:-../workspace}:/workspace:cached
+      # 作業対象: .devcontainer を含むプロジェクトのルート。
+      - ..:/workspace:cached
+      # サンドボックス構成(許可リストを含む)の読み取り専用の重ねマウント。
+      # プロジェクトと同じリポジトリで版管理しながら、agent内からはgitを含む
+      # どの経路でも書き込めないようにする。エージェントの自力診断用の読み取り
+      # ビューを兼ねるため、.devcontainer に秘密を置かないこと。
+      - .:/workspace/.devcontainer:ro
       # 認証情報、利用者設定、セッション、キャッシュをコンテナ再作成後も保持する。
       - codex-state:/home/dev/.codex
       - claude-state:/home/dev/.claude
       - dev-cache:/home/dev/.cache
       # dindのdockerd APIソケット置き場。roのためソケットの削除や差し替えはできない。
       - dind-sock:/run/agent-docker:ro
-      # 通信の許可リスト。gatewayが読むものと同じファイルをroで見せる。
-      - ./policy:/etc/agent-sandbox/policy:ro
-      # サンドボックス構成自体のroビュー。エージェントが環境起因の問題を自力診断
-      # できるようにする。この前提を保つため .devcontainer に秘密を置かないこと。
-      - .:/etc/agent-sandbox/devcontainer:ro
     command: sleep infinity
     depends_on:
       - dns
@@ -111,7 +109,10 @@ services:
       - dind-sock:/run/agent-docker
       - dind-state:/home/rootless/.local/share/docker
       # agentと同一パスでworkspaceを見せ、内側コンテナへのbind mountを成立させる。
-      - ${WORKSPACE_DIR:-../workspace}:/workspace:cached
+      # ro重ねマウントも同一に保ち、内側コンテナへのbind mount経由で
+      # .devcontainer が書き込み可能になる経路を塞ぐ。
+      - ..:/workspace:cached
+      - .:/workspace/.devcontainer:ro
     # コマンドをdockerdから始めると、イメージのentrypointが既定のTCP待受を追加しない。
     # 待受はこのUNIXソケットだけとする。
     command: ["dockerd", "--host=unix:///run/agent-docker/docker.sock"]

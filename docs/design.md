@@ -53,7 +53,7 @@ agent ── internal ネットワーク ── gateway ── egress ネット�
 
 - 外向き通信は既定で拒否され、許可リストにあるホストへの HTTP と HTTPS だけが外部へ到達する。
 - IP アドレスの直接指定、外部リゾルバへの名前解決、クラウドのメタデータサービスへの接続は到達しない。
-- 許可リストの変更は、ホスト側でのファイル編集だけで数秒のうちに反映される。
+- 稼働中の境界は、ホスト側での明示的な操作（gateway の再起動、リビルド）によってのみ変わる。
 
 権限について、次を保証する。
 
@@ -70,6 +70,12 @@ agent ── internal ネットワーク ── gateway ── egress ネット�
 
 許可したホストへは、`/workspace` の内容を含む情報をエージェントが送信できる。
 許可リストへの追加は、そのホストへの情報流出を受け入れることと同義である。
+
+作業リポジトリはホストと共有され、この共有に伴う二つの経路は運用で防ぐ。
+第一に、エージェントは書き込めない `.devcontainer/` の変更も、コミットとして履歴に含めることはできる。
+その内容が境界へ効くのは人間が gateway の再起動またはリビルドを行ったときに限られるため、取り込み時のレビューで `.devcontainer/` への変更を確認することが境界を維持する前提になる。
+第二に、ホスト側でこのリポジトリに対して行う git 操作は、エージェントが書き得る `.git` の内容（hooks、config）を信頼して実行される。
+この経路を許容できない場合は、別のクリーンな clone から `git fetch` で取り込んで検分する。
 
 Docker、Linux カーネル、エージェント製品自体の脆弱性による突破は防げない。
 また、gateway と dns は境界を実装する信頼されたコンテナであり、その侵害はこの設計の保証の外にある。
@@ -108,8 +114,11 @@ gateway は判定（許可リスト照合）と中継（バイト列の転送）
 HTTPS の遮断が接続エラーとしてしか見えないことは、TLS を終端しないことの代償である。
 そこで、遮断と障害の切り分けは `sandbox-check <host>`（許可リストとの照合と接続試行を併せて報告する）に持たせ、両製品が必ず読む管理配置（Claude Code の managed CLAUDE.md と Codex の `AGENTS.md`）にその案内を置く。
 
-許可リストは、gateway が接続のたびに mtime を確認して再読込する。
-このため、ホスト側で保存した変更は数秒のうちに次の接続から反映され、コンテナの再起動を要しない。
+許可リストは、gateway が起動時に一度だけ読み込む。
+ホスト側で編集した変更は、gateway の再起動（`docker compose -f .devcontainer/docker-compose.yml restart gateway`）で反映される。
+稼働中の再読込をしないのは、許可リストが作業リポジトリのワークツリーにあり、その内容が管理者の編集だけでなくホスト側の git 操作（checkout、merge）でも変わるためである。
+ファイルの変化を反映の合図にすると、エージェントが履歴に紛れ込ませた許可リストの変更が、人間がレビューする前に境界へ効いてしまう。
+反映を明示的な再起動に限ることで、レビューが効力の前に挟まることを構造で保証する。
 
 gateway は判定のたびに 1 行の JSON（時刻、ポート、ホスト、判定）を標準出力へ書く。
 この**決定ログ**は `docker compose logs gateway` で読め、接続単位の監査記録として任意の基盤へ転送できる。
@@ -118,18 +127,23 @@ gateway は判定のたびに 1 行の JSON（時刻、ポート、ホスト、�
 
 agent コンテナに見せるものを、マウントの列挙で最小に保つ。
 
-- `/workspace`：作業対象。`.devcontainer/.env` の `WORKSPACE_DIR`（既定は `workspace/`）をマウントする。
+- `/workspace`：作業対象。`.devcontainer` を含むプロジェクトのルートをマウントする。
+- `/workspace/.devcontainer`：サンドボックス構成（許可リストを含む）の読み取り専用の重ねマウント。エージェントが環境起因の問題を自力診断できる読み取りビューを兼ねるため、`.devcontainer` には秘密を置かない。
 - 名前付きボリューム：Claude Code と Codex の認証情報、利用者設定、セッションと、`~/.cache`（ビルドキャッシュ等）。コンテナを作り直しても保持され、`make reset` で破棄する。
-- `/etc/agent-sandbox/policy`：許可リスト。読み取り専用。
-- `/etc/agent-sandbox/devcontainer`：サンドボックス構成自体の読み取り専用ビュー。エージェントが環境起因の問題を自力診断できるように見せる。このため `.devcontainer` には秘密を置かない。
 
 権限は、非 root ユーザー、`cap_drop: ALL`、`no-new-privileges` で絞り、sudo はインストールしない。
 seccomp だけは無効化する（`seccomp:unconfined`）。
 Codex が Bubblewrap で自前の多層サンドボックスを作るには名前空間の作成が必要であり、境界は seccomp ではなく非 root、capability、マウント、ネットワークで維持する。
 
-作業対象の選び方に一つ制約がある。
-`WORKSPACE_DIR` に `.devcontainer` を含むディレクトリ（このリポジトリのルートなど）を指定すると、読み取り専用で施錠している許可リストと同じホスト上のファイルが `/workspace` 経由で書き込み可能になり、境界が破れる。
-`sandbox-check` はこの誤設定を検出する。
+サンドボックス構成の配置は、三つの要求を同時に満たすように決めている。
+構成をプロジェクトと同じリポジトリで版管理できること。
+エージェントが稼働中の境界を変更できないこと。
+変更の反映が管理者の明示的な操作だけで起きること。
+一つ目は `.devcontainer` を作業対象のリポジトリに同居させることで満たす。
+二つ目は読み取り専用の重ねマウントで満たす。これはエディタ、git、リダイレクトなどあらゆる書き込み経路に効き、マウントの解除や差し替えに必要な capability は agent に与えられない。
+三つ目は、gateway が許可リストを起動時にしか読まないことで満たす（ネットワーク境界の章を参照）。
+エージェントは `.devcontainer` の変更をコミットとして提案できるが、その内容が境界へ効くのは、人間がレビューを経て gateway の再起動またはリビルドを行ったときに限られる。
+この重ねマウントの帰結として、`.devcontainer` 配下に差分がある版への git checkout は agent 内では失敗する。
 
 ## 検査コマンド sandbox-check
 
@@ -161,8 +175,7 @@ Codex が Bubblewrap で自前の多層サンドボックスを作るには名�
 | `net.direct-ip` | 外部 IP アドレスへの直接接続が成立しない |
 | `net.metadata` | メタデータサービス 169.254.169.254 へ到達しない |
 | `fs.workspace-writable` | `/workspace` にファイルを作成できる |
-| `fs.policy-immutable` | 許可リストと配置ディレクトリへ書き込めない |
-| `fs.policy-not-in-workspace` | `/workspace` 経由で許可リストへ到達できない |
+| `fs.devcontainer-readonly` | サンドボックス構成 `/workspace/.devcontainer` と許可リストへ書き込めない |
 | `fs.no-docker-socket` | ホストの Docker ソケットが存在しないか接続できない |
 | `priv.non-root` | 実効ユーザーが root でない |
 | `priv.no-sudo` | sudo で無人昇格できない |
@@ -209,7 +222,6 @@ cgroup の委譲がないため、`--memory` などのリソース制限フラ�
 ├── AGENTS.md                     # このリポジトリを改修するエージェント向けの原則(CLAUDE.mdが参照)
 ├── Makefile                      # up / down / reset / check / test / init
 ├── docs/design.md                # この文書
-├── workspace/                    # 既定の作業ディレクトリ
 ├── host-settings/                # コンテナを使えない利用者向けの管理設定(独立した提供物)
 ├── .devcontainer/
 │   ├── devcontainer.json         # Dev Container 対応エディタ用の定義
@@ -237,9 +249,9 @@ agent と dind のイメージがトラストストアへ取り込み、上流�
 
 | やりたいこと | 触る場所 |
 |---|---|
-| 接続先を許可する | `policy/allowed-domains.conf` に 1 行追加（再起動不要） |
+| 接続先を許可する | `policy/allowed-domains.conf` に 1 行追加し、gateway を再起動 |
 | 言語ランタイムや CLI を足す | `agent/Dockerfile` に追記してリビルド |
-| 既存プロジェクトを作業対象にする | `.env` に `WORKSPACE_DIR=/path/to/repo` |
+| 別のプロジェクトで使う | そのプロジェクトのルートへ `make init` |
 | コンテナ内 Docker を使う | `.env` に `COMPOSE_PROFILES=dind` |
 | 決定ログを監査基盤へ送る | gateway コンテナの標準出力を Docker の logging driver で転送 |
 | 内部サービスを足す | `docker-compose.yml` の internal へ固定 IP で追加し、IP で接続する |
@@ -253,4 +265,4 @@ agent と dind のイメージがトラストストアへ取り込み、上流�
 - **sandbox-check**：許可リスト照合が gateway と同じ意味論であること（同一のケース集合を両実装に適用して確かめる）。
 
 統合テストは、実際のコンテナ群でこの設計が成立することを確かめる。
-compose で起動し、`sandbox-check` が全項目 ok で終了すること、許可ホストへの到達、未許可ホストの遮断、許可リストのホットリロードを観測する。
+compose で起動し、`sandbox-check` が全項目 ok で終了すること、許可ホストへの到達、未許可ホストの遮断、許可リストの変更が gateway の再起動で反映されることを観測する。

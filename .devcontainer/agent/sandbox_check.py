@@ -29,10 +29,9 @@ from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from pathlib import Path
 from typing import Literal
 
-ALLOWLIST_PATH = Path("/etc/agent-sandbox/policy/allowed-domains.conf")
 WORKSPACE_PATH = Path("/workspace")
-# WORKSPACE_DIRの誤設定(.devcontainerを含むディレクトリのマウント)で現れるパス。
-WORKSPACE_POLICY_PATH = Path("/workspace/.devcontainer/policy/allowed-domains.conf")
+DEVCONTAINER_PATH = WORKSPACE_PATH / ".devcontainer"
+ALLOWLIST_PATH = DEVCONTAINER_PATH / "policy" / "allowed-domains.conf"
 HOST_DOCKER_SOCKETS = (Path("/var/run/docker.sock"), Path("/run/docker.sock"))
 PROC_STATUS_PATH = Path("/proc/self/status")
 
@@ -292,8 +291,8 @@ def check_fs_workspace_writable() -> Result:
     return Result(check_id, "ok", f"{WORKSPACE_PATH} でファイルを作成と削除できた")
 
 
-def check_fs_policy_immutable() -> Result:
-    check_id = "fs.policy-immutable"
+def check_fs_devcontainer_readonly() -> Result:
+    check_id = "fs.devcontainer-readonly"
     if not ALLOWLIST_PATH.is_file():
         return Result(check_id, "unknown", f"許可リスト {ALLOWLIST_PATH} が存在しない")
     try:
@@ -302,21 +301,10 @@ def check_fs_policy_immutable() -> Result:
         return Result(check_id, "ng", "許可リストを書き込み用に開けた")
     except OSError:
         pass
-    if _create_error_in(ALLOWLIST_PATH.parent) is None:
-        return Result(check_id, "ng", f"{ALLOWLIST_PATH.parent} にファイルを作成できた")
-    return Result(check_id, "ok", "許可リストと配置ディレクトリへの書き込みが拒否された")
-
-
-def check_fs_policy_not_in_workspace() -> Result:
-    check_id = "fs.policy-not-in-workspace"
-    if WORKSPACE_POLICY_PATH.exists():
-        return Result(
-            check_id,
-            "ng",
-            f"{WORKSPACE_POLICY_PATH} が見える。WORKSPACE_DIRに.devcontainerを含む"
-            "ディレクトリが指定されており、許可リストを/workspace経由で書き換えられる",
-        )
-    return Result(check_id, "ok", "/workspace から許可リストへ到達できない")
+    for directory in (DEVCONTAINER_PATH, ALLOWLIST_PATH.parent):
+        if _create_error_in(directory) is None:
+            return Result(check_id, "ng", f"{directory} にファイルを作成できた")
+    return Result(check_id, "ok", "サンドボックス構成と許可リストへの書き込みが拒否された")
 
 
 def check_fs_no_docker_socket() -> Result:
@@ -407,8 +395,7 @@ def run_checks() -> list[Result]:
         check_net_direct_ip(),
         check_net_metadata(),
         check_fs_workspace_writable(),
-        check_fs_policy_immutable(),
-        check_fs_policy_not_in_workspace(),
+        check_fs_devcontainer_readonly(),
         check_fs_no_docker_socket(),
         check_priv_non_root(),
         check_priv_no_sudo(),
@@ -479,8 +466,8 @@ def diagnose(host_argument: str) -> int:
         print("このホストへは到達できる。")
         return 0
     if matches and outcome == "rejected":
-        print("許可されているのに遮断された。許可リストの保存直後なら数秒待って再試行する。")
-        print("再現する場合はホスト側で書式エラー(gatewayログのallowlist-error)を確認する。")
+        print("許可されているのに遮断された。ホスト側で許可リストを編集した後に")
+        print("gatewayを再起動したかを利用者に確認する。")
         return 1
     if matches:
         print("境界ではなく、接続先または経路の問題の可能性がある。")
@@ -489,9 +476,9 @@ def diagnose(host_argument: str) -> int:
         print("許可リストに一致しないのに到達した。境界の破れとして利用者へ報告すること。")
         return 1
     print("このホストは遮断されている。回避を試みないこと。")
-    print("必要なら、ホスト名と用途を利用者へ伝え、ホスト側の")
-    print(f"{ALLOWLIST_PATH} (.devcontainer/policy/allowed-domains.conf) への追加を依頼する。")
-    print("追加は再起動なしで数秒のうちに反映される。現在の許可リスト:")
+    print("必要なら、ホスト名と用途を利用者へ伝え、ホスト側での")
+    print(".devcontainer/policy/allowed-domains.conf への追加とgatewayの再起動を依頼する。")
+    print("現在の許可リスト:")
     for entry in entries:
         print(f"  - {entry}")
     return 1

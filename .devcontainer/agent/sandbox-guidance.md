@@ -1,6 +1,6 @@
 # この環境について
 
-隔離されたDev Containerです。環境の構成は`/etc/agent-sandbox/devcontainer/`から読み取れます。
+隔離されたDev Containerです。環境の構成は`/workspace/.devcontainer/`から読み取れます。
 構成ファイルは読み取り専用であり、変更はホスト側で行います。
 エージェントCLIが自前のサンドボックスを持つ場合、その拒否はこの環境の制限とは別のものです。
 
@@ -12,8 +12,8 @@
 
 接続に失敗したら`sandbox-check <host>`を実行してください。遮断か障害かを判別できます。
 遮断を回避しようとせず、接続先の追加が必要な場合は対象ホストと用途を利用者へ伝えてください。
-許可リストはホスト側の`.devcontainer/policy/allowed-domains.conf`で管理し、編集は再起動なしで
-数秒のうちに反映されます。
+許可リストはホスト側の`.devcontainer/policy/allowed-domains.conf`で管理し、編集は
+ホスト側でのgatewayの再起動で反映されます。
 
 # 開発ツール
 

@@ -3,7 +3,3 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-# 既定の作業ディレクトリの中身は利用者のもの。
-workspace/*
-!workspace/README.md

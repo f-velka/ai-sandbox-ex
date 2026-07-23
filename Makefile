@@ -28,7 +28,6 @@ init:
 	@if [ -e "$(TARGET)/.devcontainer" ]; then echo "init: $(TARGET)/.devcontainer already exists"; exit 1; fi
 	@mkdir -p "$(TARGET)"
 	tar -cf - --exclude='.env' --exclude='__pycache__' --exclude='*.pyc' .devcontainer | tar -x -C "$(TARGET)"
-	@mkdir -p "$(TARGET)/workspace"
 	@echo "init: created $(TARGET)/.devcontainer"
 	@echo "next: cd $(TARGET) && code .   # Dev Container対応エディタで開く"
 	@echo "  または: cd $(TARGET) && .devcontainer/bootstrap && docker compose -f .devcontainer/docker-compose.yml up -d --build"

@@ -1,8 +1,7 @@
-"""gatewayの接続先ホスト名の読み取り、遮断応答、許可リストの再読込を固定する。"""
+"""gatewayの接続先ホスト名の読み取り、遮断応答、許可リストの読み込みを固定する。"""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -86,29 +85,11 @@ def test_blocked_response_is_a_403_with_marker_header_and_reason() -> None:
     assert b"sandbox-check" in body
 
 
-def _write_allowlist(path: Path, text: str, mtime: float) -> None:
-    path.write_text(text, encoding="utf-8")
-    os.utime(path, (mtime, mtime))
-
-
-def test_allowlist_edit_is_picked_up_without_restart(tmp_path: Path) -> None:
+def test_allowlist_is_loaded_from_file(tmp_path: Path) -> None:
     path = tmp_path / "allowed-domains.conf"
-    _write_allowlist(path, "github.com\n", mtime=1000.0)
-    allowlist = sni_proxy.ReloadingAllowlist(path)
+    path.write_text("github.com\n*.anthropic.com\n", encoding="utf-8")
 
-    _write_allowlist(path, "github.com\nexample.com\n", mtime=2000.0)
-
-    assert allowlist.is_allowed("example.com") is True
-
-
-def test_broken_edit_keeps_the_last_good_allowlist(tmp_path: Path) -> None:
-    path = tmp_path / "allowed-domains.conf"
-    _write_allowlist(path, "github.com\n", mtime=1000.0)
-    allowlist = sni_proxy.ReloadingAllowlist(path)
-
-    _write_allowlist(path, "broken entry with spaces\n", mtime=2000.0)
-
-    assert allowlist.is_allowed("github.com") is True
+    assert sni_proxy.load_allowlist(path) == ("github.com", "*.anthropic.com")
 
 
 def test_broken_allowlist_at_startup_refuses_to_serve(tmp_path: Path) -> None:
@@ -116,4 +97,4 @@ def test_broken_allowlist_at_startup_refuses_to_serve(tmp_path: Path) -> None:
     path.write_text("broken entry with spaces\n", encoding="utf-8")
 
     with pytest.raises(sni_proxy.AllowlistParseError):
-        sni_proxy.ReloadingAllowlist(path)
+        sni_proxy.load_allowlist(path)

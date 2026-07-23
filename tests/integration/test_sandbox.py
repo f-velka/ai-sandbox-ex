@@ -99,21 +99,31 @@ def test_allowed_host_is_reachable_over_https_with_a_real_certificate() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_allowlist_addition_takes_effect_without_restart() -> None:
+def test_allowlist_addition_takes_effect_only_after_gateway_restart() -> None:
     original = ALLOWLIST_PATH.read_text(encoding="utf-8")
 
     def example_is_reachable() -> bool:
         probe = agent_exec(["curl", "-sI", "--max-time", "10", "https://example.com/"])
         return probe.returncode == 0
 
+    def restart_gateway() -> None:
+        _run([*_COMPOSE_BASE, "restart", "gateway"], timeout=120.0)
+
     try:
         ALLOWLIST_PATH.write_text(original + "example.com\n", encoding="utf-8")
+        assert not example_is_reachable()
+        restart_gateway()
         assert _eventually(example_is_reachable, timeout_seconds=30.0)
     finally:
         ALLOWLIST_PATH.write_text(original, encoding="utf-8")
+        restart_gateway()
 
 
-def test_allowlist_is_immutable_from_inside_the_agent() -> None:
-    result = agent_exec(["sh", "-c", "echo x >> /etc/agent-sandbox/policy/allowed-domains.conf"])
+def test_devcontainer_is_immutable_from_inside_the_agent() -> None:
+    allowlist_append = agent_exec(
+        ["sh", "-c", "echo x >> /workspace/.devcontainer/policy/allowed-domains.conf"]
+    )
+    file_create = agent_exec(["sh", "-c", "touch /workspace/.devcontainer/probe"])
 
-    assert result.returncode != 0
+    assert allowlist_append.returncode != 0
+    assert file_create.returncode != 0

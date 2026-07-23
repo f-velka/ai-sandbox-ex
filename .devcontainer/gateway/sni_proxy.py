@@ -90,35 +90,16 @@ def is_allowed(host: str, entries: Iterable[str]) -> bool:
     return any(host_matches(host, entry) for entry in entries)
 
 
-class ReloadingAllowlist:
-    """mtimeが変わったときだけファイルを読み直す許可リスト。
+def load_allowlist(path: Path) -> tuple[str, ...]:
+    """許可リストを起動時に一度だけ読み込む。読めなければ例外で停止する。
 
-    起動時に読めなければ例外で停止する(空の許可リストとして動き始めない)。
-    再読込で書式が壊れていた場合はエラーを記録して直前の内容を使い続け、
-    編集途中の保存が境界を全遮断へ振らないようにする。
+    稼働中の再読込はしない。許可リストは作業リポジトリのワークツリーにあり、
+    内容は管理者の編集だけでなくホスト側のgit操作(checkout、merge)でも変わる。
+    反映をgatewayの再起動という明示操作に限ることで、エージェントが履歴に
+    紛れ込ませた変更が人間のレビューより先に境界へ効くことを防ぐ。
     """
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
-        self._mtime = path.stat().st_mtime
-        self._entries = parse_allowlist(path.read_text(encoding="utf-8"))
-
-    def entries(self) -> tuple[str, ...]:
-        try:
-            mtime = self._path.stat().st_mtime
-        except OSError:
-            return self._entries
-        if mtime == self._mtime:
-            return self._entries
-        self._mtime = mtime
-        try:
-            self._entries = parse_allowlist(self._path.read_text(encoding="utf-8"))
-        except (OSError, AllowlistParseError) as error:
-            _log({"event": "allowlist-error", "error": str(error)})
-        return self._entries
-
-    def is_allowed(self, host: str) -> bool:
-        return is_allowed(host, self.entries())
+    return parse_allowlist(path.read_text(encoding="utf-8"))
 
 
 # --- ホスト名の読み取り -------------------------------------------------------
@@ -218,7 +199,7 @@ def blocked_http_response(host: str | None) -> bytes:
         "This host is not in the allowlist (policy/allowed-domains.conf).\n"
         f"Run `sandbox-check {target}` inside this container for details.\n"
         "To allow it, edit .devcontainer/policy/allowed-domains.conf on the host\n"
-        "machine (reloaded automatically; no restart needed).\n"
+        "machine and restart the gateway (docker compose restart gateway).\n"
     ).encode("utf-8")
     return (
         b"HTTP/1.1 403 Forbidden\r\n"
@@ -309,8 +290,8 @@ async def _read_http_head(reader: asyncio.StreamReader) -> tuple[bytes, str | No
 
 
 class Gateway:
-    def __init__(self, allowlist: ReloadingAllowlist) -> None:
-        self._allowlist = allowlist
+    def __init__(self, entries: tuple[str, ...]) -> None:
+        self._entries = entries
 
     async def handle_tls(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         await self._handle(
@@ -357,7 +338,7 @@ class Gateway:
                 return
 
             host = normalize_host(raw_name) if raw_name else None
-            if host is None or not self._allowlist.is_allowed(host):
+            if host is None or not is_allowed(host, self._entries):
                 _log_decision(port, host, "block")
                 writer.write(blocked_response(host))
                 with contextlib.suppress(OSError):
@@ -398,7 +379,7 @@ async def _read_tls_record(reader: asyncio.StreamReader) -> tuple[bytes, bytes]:
 
 
 async def _serve(allowlist_path: Path) -> None:
-    gateway = Gateway(ReloadingAllowlist(allowlist_path))
+    gateway = Gateway(load_allowlist(allowlist_path))
     tls_server = await asyncio.start_server(gateway.handle_tls, "0.0.0.0", 443)
     http_server = await asyncio.start_server(gateway.handle_http, "0.0.0.0", 80)
     _log({"event": "listening", "allowlist": str(allowlist_path)})
