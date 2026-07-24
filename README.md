@@ -81,6 +81,9 @@ docker compose -f .devcontainer/docker-compose.yml restart gateway
 | 言語ランタイムやCLIの追加 | `.devcontainer/agent/Dockerfile`に追記してリビルド |
 | 組織CA(Zscaler等)の信頼 | `.devcontainer/certs/`に証明書を置いてリビルド |
 
+ランタイムの追加にDev Containerのfeaturesを使う場合は、エディタ経由の起動にしか適用されないことに注意してください。
+また、`mounts`や`privileged`を要求するfeatureは境界を無効にするため、採用前にfeatureのメタデータを確認してください(判断基準は[docs/design.md](docs/design.md)の拡張の指針)。
+
 `.devcontainer/`はコンテナ内から読み取り専用で、エージェントは自分の境界の設定を書き換えられません。
 ただしエージェントは、`.devcontainer/`への変更を含むコミットを提案として作れます。
 エージェントの成果を取り込むときは、`.devcontainer/`への変更の有無を必ず確認してください。
