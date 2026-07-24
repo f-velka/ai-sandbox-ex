@@ -81,23 +81,23 @@ RUN mkdir -p -m 755 /etc/claude-code /etc/codex
 COPY --chmod=755 agent/sandbox_check.py /usr/local/bin/sandbox-check
 COPY --chmod=644 agent/sandbox-guidance.md /etc/claude-code/CLAUDE.md
 
-# 状態ボリューム(認証情報、利用者設定、セッション)とキャッシュボリュームを
-# 非rootユーザーから利用できるようにする。初回マウント時にこの内容が複製される。
-RUN mkdir -p /home/dev/.codex /home/dev/.claude /home/dev/.cache \
-    && chown dev:dev /home/dev/.codex /home/dev/.claude /home/dev/.cache
+# 状態ボリューム(認証情報、利用者設定、セッション)を非rootユーザーから
+# 利用できるようにする。初回マウント時にこの内容が複製される。
+RUN mkdir -p /home/dev/.codex /home/dev/.claude \
+    && chown dev:dev /home/dev/.codex /home/dev/.claude
 COPY --chown=dev:dev --chmod=644 agent/sandbox-guidance.md /home/dev/.codex/AGENTS.md
 
 # --- Claude Code / Codex -------------------------------------------------------
-# 再現性と、版上げ時に管理設定スキーマとの整合を確認するため版を固定する。
-# 版引数を直前に置き、共通ツールのビルドキャッシュを版更新後も再利用する。
+# 再現性と、バージョン更新時に管理設定スキーマとの整合を確認するためバージョンを固定する。
+# バージョン引数を直前に置き、共通ツールのビルドキャッシュをバージョン更新後も再利用する。
 #
-# 版固定は本体を状態ボリュームのマウント先の外に置くことで成立する:
-# マウント先に入ると初回マウントで複製された旧版がリビルド後も使われ続ける。
-# 自己更新はmanaged設定(DISABLE_UPDATES)で禁止し、版はこのファイルだけが決める。
+# バージョン固定は本体を状態ボリュームのマウント先の外に置くことで成立する:
+# マウント先に入ると初回マウントで複製された古いバージョンがリビルド後も使われ続ける。
+# 自己更新はmanaged設定(DISABLE_UPDATES)で禁止し、バージョンはこのファイルだけが決める。
 ENV PATH="/home/dev/.local/bin:${PATH}"
 
 # Claude Codeの配置先 ~/.local はボリュームのマウント先ではないため、既定のままでよい
-# (マウント先は ~/.claude ~/.codex ~/.cache のみ)。
+# (マウント先は ~/.claude ~/.codex のみ)。
 ARG CLAUDE_CODE_VERSION=2.1.218
 # https://code.claude.com/docs/en/setup#install-a-specific-version
 USER dev
@@ -115,7 +115,7 @@ RUN mkdir -p /opt/codex \
        CODEX_NON_INTERACTIVE=1 \
        sh -c "curl -fsSL https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/install.sh | sh"
 
-# 更新禁止を含む管理設定は、指定版のインストールを終えてから配置する。
+# 更新禁止を含む管理設定は、指定バージョンのインストールを終えてから配置する。
 COPY --chmod=644 agent/managed-settings.json /etc/claude-code/managed-settings.json
 COPY --chmod=644 agent/codex-requirements.toml /etc/codex/requirements.toml
 

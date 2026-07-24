@@ -36,14 +36,17 @@ services:
       # 作業対象: .devcontainer を含むプロジェクトのルート。
       - ..:/workspace:cached
       # サンドボックス構成(許可リストを含む)の読み取り専用の重ねマウント。
-      # プロジェクトと同じリポジトリで版管理しながら、agent内からはgitを含む
+      # プロジェクトと同じリポジトリでバージョン管理しながら、agent内からはgitを含む
       # どの経路でも書き込めないようにする。エージェントの自力診断用の読み取り
       # ビューを兼ねるため、.devcontainer に秘密を置かないこと。
       - .:/workspace/.devcontainer:ro
-      # 認証情報、利用者設定、セッション、キャッシュをコンテナ再作成後も保持する。
+      # 認証情報、利用者設定、セッションをコンテナ再作成後も保持する。
+      # ボリュームを追加する場合の注意: マウント先には初回マウント時にイメージの
+      # 内容が複製され、以後はリビルドしてもボリューム側が使われ続ける。ビルド時に
+      # 書き込まれるパス(製品本体の /home/dev/.local や /opt、ツールによっては
+      # ~/.cache 配下)へ重ねると、バージョンの更新が反映されなくなる。
       - codex-state:/home/dev/.codex
       - claude-state:/home/dev/.claude
-      - dev-cache:/home/dev/.cache
       # dindのdockerd APIソケット置き場。roのためソケットの削除や差し替えはできない。
       - dind-sock:/run/agent-docker:ro
     command: sleep infinity
@@ -122,7 +125,6 @@ services:
 volumes:
   codex-state: {}
   claude-state: {}
-  dev-cache: {}
   dind-sock: {}
   dind-state: {}
 
