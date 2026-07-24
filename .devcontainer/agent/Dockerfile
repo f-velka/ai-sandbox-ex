@@ -126,9 +126,12 @@ COPY --chmod=644 agent/codex-requirements.toml /etc/codex/requirements.toml
 # 導入(例2)以外はUSERの切り替えを書かなくてよい。
 #
 # 例1: aptパッケージを足す
-#   RUN apt-get update \
-#       && apt-get install -y --no-install-recommends nodejs npm \
-#       && rm -rf /var/lib/apt/lists/*
+#   RUN <<'EOF'
+#   set -eu
+#   apt-get update
+#   apt-get install -y --no-install-recommends jq
+#   rm -rf /var/lib/apt/lists/*
+#   EOF
 #
 # 例2: devユーザーのホームへツールを導入する
 #   USER dev
